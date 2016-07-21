@@ -493,5 +493,5 @@ repeat | if | change_type | foreach | set_option | interaction )*>
 <!ELEMENT qmsg (#PCDATA) >
 <!ATTLIST qmsg
     uid         CDATA   "0"
-    ack         (global | local | no_ack | parse) "parse"
+    ack         (local | no_ack | parse) #REQUIRED
     >

@@ -22,6 +22,9 @@
 
 -define(TCP_OPTIONS, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]).
 -define(LISTEN_PORT, 5678).
+-define(LOG(Message, Args, Level), error_logger:info_msg("~20s:(~p:~p) "++ Message,
+                                                  [?MODULE, Level, self()] ++ Args)
+       ).
 
 %%%===================================================================
 %%% API functions
@@ -178,15 +181,17 @@ recv_loop(Socket) ->
 
 process_message(Sock, <<Len:32/little, LeftBin:Len/binary>>) ->
     TxtBinLen = Len - 12,
-    <<"**##", Uid:32/integer, _TxtBinary:TxtBinLen/binary, "##**">> = LeftBin,
-    error_logger:info_msg("Server Got Msg : ~p~n", [LeftBin]),
+    <<"**##", Uid:32/integer, TxtBinary:TxtBinLen/binary, "##**">> = LeftBin,
 
     RandomCode = get_random_num(1000000),
     %% generate the response
     RespBody = <<16:32/little, "**##", Uid:32/integer, RandomCode:32/integer, "##**">>,
+
+    ?LOG("Server Got Request : ~p, Output Response : ~p", [{"**##", Uid, TxtBinary, "##**"}, {"**##", Uid, RandomCode, "##**"}], debug),
+
     gen_tcp:send(Sock, RespBody);
 process_message(Sock, Data) ->
-    error_logger:info_msg("Server Got Unknown Msg : ~p~n", [Data]),
+    ?LOG("Server Got Unknown Msg : ~p~n", [Data], info),
     RespBody = <<16:32/little, "**##", 0:32/integer, 0/integer, "##**">>,
     gen_tcp:send(Sock, RespBody).
 
@@ -201,9 +206,9 @@ do_send_msg(Port, Msg) ->
     ok = gen_tcp:send(Sock, Msg),
     receive
         {tcp, Sock, Msg0} ->
-            error_logger:info_msg("client got msgs ~p~n", [Msg0])
+            ?LOG("client got msgs ~p", [Msg0], debug)
     after 30000 ->
-              error_logger:info_msg("client timeout~n")
+              ?LOG("client timeout", [], debug)
     end,
     ok = gen_tcp:close(Sock).
 

@@ -22,12 +22,15 @@ parse_config(Element = #xmlElement{name = qmsg, attributes = Attrs},
              Config=#config{curid = Id, session_tab = Tab,
                             sessions = [CurS | _], dynvar = DynVar,
                             subst    = SubstFlag, match = MatchRegExp}) ->
-    Uid = ts_config:getAttr(integer, Attrs, uid, 0),
+
+    %% support dynparams subst
+    Uid = ts_config:getAttr(string, Attrs, uid, "0"),
+    Ack  = ts_config:getAttr(atom, Attrs, ack, parse),
     Data = ts_config:getText(Element#xmlElement.content),
 
     Req = #qmsg_request{uid = Uid, data = Data},
     ts_config:mark_prev_req(Id - 1, Tab, CurS),
-    Msg=#ts_request{
+    Msg=#ts_request{ack     = Ack,
                     subst   = SubstFlag,
                     match   = MatchRegExp,
                     param   = Req},

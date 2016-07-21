@@ -47,31 +47,31 @@ new_session() ->
 %% Args:    #jabber
 %% Returns: binary
 %%----------------------------------------------------------------------
-get_message(#qmsg_request{uid = Uid, data = Data}, #state_rcv{session = S})->
+get_message(#qmsg_request{uid = StrUid, data = Data}, #state_rcv{session = S})->
     MsgBin = list_to_binary(Data),
+    Uid = case is_list(StrUid) of
+              true -> list_to_integer(StrUid);
+              false -> StrUid
+          end,
     ReqBody = <<"**##", Uid:32/integer, MsgBin/binary, "##**">>,
     BodyLen = byte_size(ReqBody),
     ReqBin = <<BodyLen:32/little, ReqBody/binary>>,
 
+    ?LOGF("qmsg_request encode result : ~p", [{"**##", Uid, Data, "##**"}], ?DEB),
     {ReqBin, S}.
 
 %%----------------------------------------------------------------------
-%% Function: parse/3
-%% Purpose: Parse the given data and return a new state
-%% Args:    Data (binary)
-%%            State (record)
-%% Returns: NewState (record)
+%% Function: parse/2
+%% Purpose: Parse the response data
+%% Returns: {NewState, Opts, Close}
 %%----------------------------------------------------------------------
-%% no parsing . use only ack
-
 parse(closed, State) ->
+    ?LOGF("qmsg_response got closed", [], ?DEB),
     {State#state_rcv{ack_done = true, datasize = 0}, [], true};
-parse(Data, State=#state_rcv{acc = [], datasize = 0}) ->
-    parse(Data, State#state_rcv{datasize= size(Data)});
 parse(<<Len:32/little, LeftBin:Len/binary>> = Data, State = #state_rcv{datasize = DataSize}) ->
     <<"**##", Uid:32/integer, Random:32/integer, "##**">> = LeftBin,
 
-    ?LOGF("qmsg_request encode result : ~p", [{"**##", Uid, Random, "##**"}], ?DEB),
+    ?LOGF("qmsg_response decode result : ~p", [{"**##", Uid, Random, "##**"}], ?DEB),
 
     AckResult =
     case Random of
@@ -82,8 +82,9 @@ parse(<<Len:32/little, LeftBin:Len/binary>> = Data, State = #state_rcv{datasize 
     end,
 
     NewDataSize = DataSize + Len + 4,
-    parse(Data, State#state_rcv{ack_done = AckResult, acc = [], datasize = NewDataSize});
-parse(_Data, State) ->
+    {State#state_rcv{ack_done = AckResult, acc = [], datasize = NewDataSize}, [], false};
+parse(Data, State) ->
+    ?LOGF("qmsg_response got unmatched data : ~p", [Data], ?DEB),
     {State, [], false}.
 
 parse_bidi(Data, State) ->
