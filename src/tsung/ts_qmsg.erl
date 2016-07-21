@@ -107,15 +107,6 @@ add_dynparams(true, {DynVars, _Session}, OldReq, _Host) ->
 add_dynparams(_Subst, _DynData, Param, _Host) ->
     Param.
 
-string_to_term(String) ->
-    {ok, T, _} = erl_scan:string(String ++ "."),
-    case erl_parse:parse_term(T) of
-        {ok, Term} ->
-            {ok, Term};
-        {error, Error} ->
-            Error
-    end.
-
 %%----------------------------------------------------------------------
 %% Function: subst/1
 %%----------------------------------------------------------------------
