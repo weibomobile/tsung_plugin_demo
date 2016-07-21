@@ -1,100 +1,180 @@
+%%%-------------------------------------------------------------------
+%%% @author nieyong@staff.weibo.com
+%%% @copyright 2016 nieyong@staff.weibo.com
+%%% @doc
+%%%     The Qmsg Protocl Server
+%%% @end
+%%%-------------------------------------------------------------------
 -module(qmsg_server).
+
 -behaviour(gen_server).
 
-%% API
--export([start_link/0, server/0, stop/0, accept/1, sendmsg/2]).
+%% API functions
+-export([start/0, accept_loop/1, sendmsg/2]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3]).
 
--record(state, {sock}).
+-define(TCP_OPTIONS, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]).
+-define(LISTEN_PORT, 5678).
 
-%%====================================================================
-%% API
-%%====================================================================
-%%--------------------------------------------------------------------
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
-%%--------------------------------------------------------------------
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-%%--------------------------------------------------------------------
-%% Function: server() -> ok
-%% Description: Starts listening to port 5678
-%%--------------------------------------------------------------------
-server() ->
-    gen_server:cast(?MODULE, server).
+%%%===================================================================
+%%% API functions
+%%%===================================================================
 
 %%--------------------------------------------------------------------
-%% Function: stop() -> ok
-%% Description: Closes listening port and stops myserver
+%% @doc
+%% Starts the server
+%%
+%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
+%% @end
 %%--------------------------------------------------------------------
-stop() ->
-    gen_server:call(?MODULE, stop).
+start() ->
+    Port = ?LISTEN_PORT,
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Port], []).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% accept the listen socket
+%%
+%% @spec accept_loop({Server, LSocket}) -> any()
+%% @end
+%%--------------------------------------------------------------------
+accept_loop({Server, LSocket}) ->
+    {ok, Socket} = gen_tcp:accept(LSocket),
+    gen_server:cast(Server, {accepted, LSocket}),
+    recv_loop(Socket).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Connect the Server, send msg and get response
+%%
+%% @spec sendmsg(integer(), list()) -> any()
+%% @end
+%%--------------------------------------------------------------------
 sendmsg(Uid, Msg) when is_integer(Uid), is_list(Msg) ->
     MsgBin = list_to_binary(Msg),
     ReqBody = <<"**##", Uid:32/integer, MsgBin/binary, "##**">>,
     BodyLen = byte_size(ReqBody),
     ReqBin = <<BodyLen:32/little, ReqBody/binary>>,
-    do_send_msg(ReqBin).
+    do_send_msg(?LISTEN_PORT, ReqBin).
 
-%%====================================================================
-%% gen_server callbacks
-%%====================================================================
 
-%%--------------------------------------------------------------------
-%% Function: init(Args) -> {ok, State} |
-%%                         {ok, State, Timeout} |
-%%                         ignore               |
-%%                         {stop, Reason}
-%% Description: Initiates the server
-%%--------------------------------------------------------------------
-init([]) ->
-    {ok, LSock} = gen_tcp:listen(5678, [binary, {packet, 0},
-                                        {active, true}]),
-    {ok, #state{sock = LSock}}.
+%%%===================================================================
+%%% gen_server callbacks
+%%%===================================================================
 
 %%--------------------------------------------------------------------
-%% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
-%%                                      {reply, Reply, State, Timeout} |
-%%                                      {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, Reply, State} |
-%%                                      {stop, Reason, State}
-%% Description: Handling call messages
+%% @private
+%% @doc
+%% Initializes the server
+%%
+%% @spec init(Args) -> {ok, State} |
+%%                     {ok, State, Timeout} |
+%%                     ignore |
+%%                     {stop, Reason}
+%% @end
 %%--------------------------------------------------------------------
-handle_call(stop, _From, State) ->
-    {stop, normal, State};
+init([Port]) ->
+    case gen_tcp:listen(Port, ?TCP_OPTIONS) of
+        {ok, LSocket} ->
+            {ok, accept(LSocket)};
+        {error, Reason} ->
+            {stop, Reason}
+    end.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling call messages
+%%
+%% @spec handle_call(Request, From, State) ->
+%%                                   {reply, Reply, State} |
+%%                                   {reply, Reply, State, Timeout} |
+%%                                   {noreply, State} |
+%%                                   {noreply, State, Timeout} |
+%%                                   {stop, Reason, Reply, State} |
+%%                                   {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
 %%--------------------------------------------------------------------
-%% Function: handle_cast(Msg, State) -> {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, State}
-%% Description: Handling cast messages
+%% @private
+%% @doc
+%% Handling cast messages
+%%
+%% @spec handle_cast(Msg, State) -> {noreply, State} |
+%%                                  {noreply, State, Timeout} |
+%%                                  {stop, Reason, State}
+%% @end
 %%--------------------------------------------------------------------
-handle_cast(server, #state{sock = LSock} = State) ->
-    Reply = case gen_tcp:accept(LSock, 1000) of
-                {ok, Sock} ->
-                    error_logger:info_msg("Server accepted socket~n"),
-                    Pid = proc_lib:spawn(?MODULE, accept, [Sock]),
-                    ok = gen_tcp:controlling_process(Sock, Pid),
-                    ?MODULE:server(),
-                    {noreply, State};
-                {error, timeout} ->
-                    ?MODULE:server(),
-                    {noreply, State};
-                {error, closed} ->
-                    {stop, normal, State}
-            end,
-    Reply;
+handle_cast({accepted, LSocket}, _State) ->
+    {noreply, accept(LSocket)};
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling all non call/cast messages
+%%
+%% @spec handle_info(Info, State) -> {noreply, State} |
+%%                                   {noreply, State, Timeout} |
+%%                                   {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% This function is called by a gen_server when it is about to
+%% terminate. It should be the opposite of Module:init/1 and do any
+%% necessary cleaning up. When it returns, the gen_server terminates
+%% with Reason. The return value is ignored.
+%%
+%% @spec terminate(Reason, State) -> void()
+%% @end
+%%--------------------------------------------------------------------
+terminate(_Reason, _State) ->
+    ok.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Convert process state when code is changed
+%%
+%% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
+%% @end
+%%--------------------------------------------------------------------
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
+accept(LSocket) ->
+    proc_lib:spawn(?MODULE, accept_loop, [{self(), LSocket}]),
+    ok.
+
+recv_loop(Socket) ->
+    case gen_tcp:recv(Socket, 0) of
+        {ok, Data} ->
+            process_message(Socket, Data),
+            recv_loop(Socket);
+        {error, closed} ->
+            ok
+    end.
 
 process_message(Sock, <<Len:32/little, LeftBin:Len/binary>>) ->
     TxtBinLen = Len - 12,
@@ -110,54 +190,11 @@ process_message(Sock, Data) ->
     RespBody = <<16:32/little, "**##", 0:32/integer, 0/integer, "##**">>,
     gen_tcp:send(Sock, RespBody).
 
-accept(Sock) ->
-    receive
-        {tcp, Sock, Msg} ->
-            process_message(Sock, Msg),
-            ok = gen_tcp:close(Sock);
-        E ->
-            error_logger:info_msg("Server Got unknown msg ~p~n", [E]),
-            ok = gen_tcp:close(Sock)
-    after 30000 ->
-              error_logger:info_msg("Server socket timeout~n"),
-              ok = gen_tcp:close(Sock)
-    end.
-
-%%--------------------------------------------------------------------
-%% Function: handle_info(Info, State) -> {noreply, State} |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
-%%--------------------------------------------------------------------
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-%%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
-%% The return value is ignored.
-%%--------------------------------------------------------------------
-terminate(_Reason, #state{sock = Sock}) ->
-    gen_tcp:close(Sock),
-    ok.
-
-%%--------------------------------------------------------------------
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
-%%--------------------------------------------------------------------
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%--------------------------------------------------------------------
-%%% Internal functions
-%%--------------------------------------------------------------------
--spec do_send_msg(iodata()) -> any().
-do_send_msg(Msg) ->
+-spec do_send_msg(integer(), iodata()) -> any().
+do_send_msg(Port, Msg) ->
     {ok, Sock} =
     gen_tcp:connect("localhost",
-                    5678,
+                    Port,
                     [binary,
                      {packet, 0},
                      {active, true}]),
