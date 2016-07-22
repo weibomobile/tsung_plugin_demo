@@ -6,7 +6,7 @@ One Tsung plugin demo, for the special protocol `Qmsg`, base on Tsung 1.6.0.
 
 One binary protocol designed for Tsung plugin demo, called **Qmsg**, which has simple structure, surrounded with specials words `**####**`.
 
-![Tsung Plugin](http://github.com/weibomobile/tsung_plugin_demo/raw/master/img/qmsg_protocol.png)
+![Tsung Plugin](https://raw.githubusercontent.com/weibomobile/tsung_plugin_demo/master/img/qmsg_protocol.png)
 
 0. User Id, Integer, 4 byte
 1. PacketLength, little-endian integer, 4 byte
